@@ -1,0 +1,66 @@
+{
+  "name": "Crea Local Miami — Nuevo Lead → Discord",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "crea-local-nuevo-lead",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook",
+      "name": "Webhook — Nuevo Lead",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const b = $input.first().json.body || $input.first().json;\nconst paqueteEmoji = { 'Starter': '🥉', 'Pro': '🥈', 'Premium': '🥇' };\nconst emoji = paqueteEmoji[b.paquete] || '📋';\n\nreturn [{ json: {\n  content: [\n    emoji + ' **NUEVO LEAD — Crea Local Miami**',\n    '',\n    '**Nombre:** ' + (b.nombre || '—'),\n    '**Negocio:** ' + (b.negocio || '—'),\n    '**Paquete:** ' + (b.paquete || 'Sin definir'),\n    '**Email:** ' + (b.email || '—'),\n    '**Teléfono:** ' + (b.telefono || '—'),\n    '',\n    b.mensaje ? ('💬 *' + b.mensaje.substring(0, 200) + '*') : '',\n    '',\n    '🔗 https://docs.google.com/spreadsheets/d/1s0_L2aznX1VRGs8fxIeIU5DbdmmW5-cOdtjlZZObsgM/edit'\n  ].filter(Boolean).join('\\n')\n}}];"
+      },
+      "id": "format",
+      "name": "Formatear mensaje",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://discord.com/api/webhooks/1498697483507863695/JxfdKBXOSQujHbx1b1Ia_gaeQotF5My10qe-5W-3Z8mW-GCpFj0dqiFZE75sxTvu2oLB",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { \"content\": $json.content } }}",
+        "options": {}
+      },
+      "id": "discord",
+      "name": "Discord — Enviar Alerta",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"ok\": true }"
+      },
+      "id": "respond",
+      "name": "Responder",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [900, 300]
+    }
+  ],
+  "connections": {
+    "Webhook — Nuevo Lead": {
+      "main": [[{ "node": "Formatear mensaje", "type": "main", "index": 0 }]]
+    },
+    "Formatear mensaje": {
+      "main": [[{ "node": "Discord — Enviar Alerta", "type": "main", "index": 0 }]]
+    },
+    "Discord — Enviar Alerta": {
+      "main": [[{ "node": "Responder", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" }
+}

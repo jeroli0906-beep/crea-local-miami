@@ -1,0 +1,105 @@
+{
+  "name": "Crea Local Miami — Video Pipeline (Higgsfield → Drive → Discord)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "crea-local-video",
+        "responseMode": "lastNode",
+        "options": {}
+      },
+      "id": "webhook-video",
+      "name": "Webhook — Solicitud de Video",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "notes": "Recibe: { cliente, negocio, paquete, tipo_contenido, descripcion, plataforma }"
+    },
+    {
+      "parameters": {
+        "jsCode": "const b = $input.first().json.body || $input.first().json;\n\n// Determinar cuántas piezas según paquete\nconst config = {\n  'Starter':  { reels: 0, posts: 8,  stories: 4,  ugc: 0 },\n  'Pro':      { reels: 4, posts: 16, stories: 8,  ugc: 1 },\n  'Premium':  { reels: 8, posts: 20, stories: 15, ugc: 3 },\n};\nconst plan = config[b.paquete] || config['Starter'];\n\n// Generar prompt para Higgsfield según tipo\nconst tipo = b.tipo_contenido || 'Reel';\nconst promptBase = [\n  'Crea un video de ' + tipo + ' para ' + b.negocio + ', un negocio de ' + (b.categoria || 'servicios') + ' en Miami.',\n  'Estilo: ' + (b.estilo || 'moderno, vibrante, auténtico'),\n  'Descripción: ' + (b.descripcion || 'Muestra el negocio en acción'),\n  'Plataforma: ' + (b.plataforma || 'Instagram'),\n  'Duración: ' + (tipo === 'Reel' ? '15-30 segundos' : '10-15 segundos'),\n  'Idioma: bilingüe español/inglés en los textos superpuestos',\n].join('. ');\n\nreturn [{ json: {\n  ...b,\n  plan,\n  promptHiggsfield: promptBase,\n  timestamp: new Date().toISOString(),\n}}];"
+      },
+      "id": "plan-content",
+      "name": "Calcular plan de contenido",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-api-key", "value": "{{ANTHROPIC_API_KEY}}" },
+            { "name": "anthropic-version", "value": "2023-06-01" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-haiku-4-5-20251001\",\n  \"max_tokens\": 400,\n  \"messages\": [{\n    \"role\": \"user\",\n    \"content\": \"Eres experto en crear prompts para generación de video con IA (Higgsfield). Basándote en esta solicitud, crea un prompt optimizado en inglés para generar el video:\\n\\n\" + $json.promptHiggsfield + \"\\n\\nEl prompt debe ser específico, visual, describir movimiento de cámara, iluminación y mood. Máximo 150 palabras. Solo el prompt, sin explicaciones.\"\n  }]\n}",
+        "options": {}
+      },
+      "id": "claude-prompt",
+      "name": "Claude — Optimizar prompt",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "const claudeResp = $input.first().json;\nconst promptOptimizado = claudeResp.content && claudeResp.content[0] && claudeResp.content[0].text || '';\n\n// Pasar el prompt optimizado junto con los datos del cliente\nconst prev = $('Calcular plan de contenido').first().json;\n\nreturn [{ json: {\n  ...prev,\n  promptOptimizado,\n  // Aquí iría la llamada a Higgsfield API cuando esté disponible\n  higgsfieldPayload: {\n    prompt: promptOptimizado,\n    duration: 15,\n    aspect_ratio: prev.plataforma === 'TikTok' ? '9:16' : '9:16',\n    style: 'cinematic'\n  }\n}}];"
+      },
+      "id": "prepare-higgsfield",
+      "name": "Preparar payload Higgsfield",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [900, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://discord.com/api/webhooks/1498697483507863695/JxfdKBXOSQujHbx1b1Ia_gaeQotF5My10qe-5W-3Z8mW-GCpFj0dqiFZE75sxTvu2oLB",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"content\": \"🎬 **SOLICITUD DE VIDEO — \" + $json.cliente + \"**\\n\\n**Negocio:** \" + $json.negocio + \"\\n**Paquete:** \" + $json.paquete + \"\\n**Plan:** \" + $json.plan.reels + \" Reels | \" + $json.plan.posts + \" Posts | \" + $json.plan.stories + \" Stories\\n\\n**Prompt optimizado por Claude:**\\n*\" + $json.promptOptimizado.substring(0, 500) + \"*\\n\\n📋 Pega este prompt en Higgsfield para generar el video.\"\n}",
+        "options": {}
+      },
+      "id": "discord-video",
+      "name": "Discord — Notificar video",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={\n  \"ok\": true,\n  \"cliente\": $json.cliente,\n  \"plan\": $json.plan,\n  \"prompt\": $json.promptOptimizado\n}"
+      },
+      "id": "respond-video",
+      "name": "Responder con plan",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1340, 300]
+    }
+  ],
+  "connections": {
+    "Webhook — Solicitud de Video": {
+      "main": [[{ "node": "Calcular plan de contenido", "type": "main", "index": 0 }]]
+    },
+    "Calcular plan de contenido": {
+      "main": [[{ "node": "Claude — Optimizar prompt", "type": "main", "index": 0 }]]
+    },
+    "Claude — Optimizar prompt": {
+      "main": [[{ "node": "Preparar payload Higgsfield", "type": "main", "index": 0 }]]
+    },
+    "Preparar payload Higgsfield": {
+      "main": [[{ "node": "Discord — Notificar video", "type": "main", "index": 0 }]]
+    },
+    "Discord — Notificar video": {
+      "main": [[{ "node": "Responder con plan", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" }
+}

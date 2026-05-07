@@ -17,6 +17,7 @@ var TIMEZONE         = 'America/New_York';
 var ALERT_EMAIL      = 'jeroli0906@gmail.com';
 var KLAVIYO_API_KEY  = 'pk_ca4c95c0c73a320b929928dbf40273cf22';
 var KLAVIYO_LIST_ID  = 'XYWEDP'; // Email List
+var DISCORD_WEBHOOK  = 'https://discord.com/api/webhooks/1498697483507863695/JxfdKBXOSQujHbx1b1Ia_gaeQotF5My10qe-5W-3Z8mW-GCpFj0dqiFZE75sxTvu2oLB';
 
 // ─────────────────────────────────────────────────────────────
 // ENDPOINT PRINCIPAL
@@ -35,6 +36,11 @@ function doPost(e) {
     // 3. Suscribir a Klaviyo (no bloquea si falla)
     try { addToKlaviyo(params); } catch (kErr) {
       Logger.log('Klaviyo error (non-fatal): ' + kErr.toString());
+    }
+
+    // 4. Notificar a Discord (no bloquea si falla)
+    try { sendDiscordAlert(params); } catch (dErr) {
+      Logger.log('Discord error (non-fatal): ' + dErr.toString());
     }
 
     return ContentService
@@ -100,6 +106,34 @@ function sendAlertEmail(params) {
       '',
       'Ver CRM: https://docs.google.com/spreadsheets/d/' + SHEET_ID + '/edit',
     ].join('\n'),
+  });
+}
+
+// ─────────────────────────────────────────────────────────────
+// 4. DISCORD — alerta instantánea
+// ─────────────────────────────────────────────────────────────
+function sendDiscordAlert(params) {
+  var paqueteEmoji = { 'Starter': '🥉', 'Pro': '🥈', 'Premium': '🥇' };
+  var emoji = paqueteEmoji[params.paquete] || '📋';
+
+  var mensaje = [
+    emoji + ' **NUEVO LEAD — Crea Local Miami**',
+    '',
+    '**Nombre:** ' + (params.nombre  || '—'),
+    '**Negocio:** ' + (params.negocio || '—'),
+    '**Paquete:** ' + (params.paquete || 'Sin definir'),
+    '**Email:** '  + (params.email   || '—'),
+    '**Tel:** '    + (params.telefono || '—'),
+    params.mensaje ? ('💬 *' + params.mensaje.substring(0, 200) + '*') : '',
+    '',
+    'https://docs.google.com/spreadsheets/d/' + SHEET_ID + '/edit',
+  ].filter(Boolean).join('\n');
+
+  UrlFetchApp.fetch(DISCORD_WEBHOOK, {
+    method: 'post',
+    contentType: 'application/json',
+    payload: JSON.stringify({ content: mensaje }),
+    muteHttpExceptions: true,
   });
 }
 
