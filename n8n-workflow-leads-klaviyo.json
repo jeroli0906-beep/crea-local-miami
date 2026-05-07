@@ -1,0 +1,123 @@
+{
+  "name": "Crea Local Miami — Lead Webhook → Klaviyo",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "crea-local-leads",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-trigger",
+      "name": "Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [240, 300],
+      "webhookId": "crea-local-leads"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\n\nconst nombre = body.nombre || '';\nconst partes = nombre.trim().split(' ');\nconst firstName = partes[0] || '';\nconst lastName = partes.slice(1).join(' ') || '';\n\nreturn [{\n  json: {\n    email:     body.email    || '',\n    firstName,\n    lastName,\n    negocio:   body.negocio  || '',\n    telefono:  body.telefono || '',\n    paquete:   body.paquete  || 'Sin definir',\n    mensaje:   body.mensaje  || '',\n    fuente:    'Web - Crea Local Miami',\n  }\n}];"
+      },
+      "id": "parse-data",
+      "name": "Parsear datos",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.email }}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "check-email",
+      "name": "Tiene email?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://a.klaviyo.com/api/profile-subscription-bulk-create-jobs/",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "revision", "value": "2024-10-15" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": []
+        },
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"data\": {\n    \"type\": \"profile-subscription-bulk-create-job\",\n    \"attributes\": {\n      \"profiles\": {\n        \"data\": [{\n          \"type\": \"profile\",\n          \"attributes\": {\n            \"email\": \"{{ $json.email }}\",\n            \"first_name\": \"{{ $json.firstName }}\",\n            \"last_name\": \"{{ $json.lastName }}\",\n            \"organization\": \"{{ $json.negocio }}\",\n            \"location\": { \"city\": \"Miami\", \"region\": \"Florida\", \"country\": \"United States\" },\n            \"properties\": {\n              \"paquete_interes\": \"{{ $json.paquete }}\",\n              \"negocio\": \"{{ $json.negocio }}\",\n              \"telefono\": \"{{ $json.telefono }}\",\n              \"fuente\": \"{{ $json.fuente }}\",\n              \"mensaje\": \"{{ $json.mensaje }}\"\n            },\n            \"subscriptions\": {\n              \"email\": {\n                \"marketing\": { \"consent\": \"SUBSCRIBED\" }\n              }\n            }\n          }\n        }]\n      }\n    },\n    \"relationships\": {\n      \"list\": {\n        \"data\": { \"type\": \"list\", \"id\": \"XYWEDP\" }\n      }\n    }\n  }\n}",
+        "options": {}
+      },
+      "id": "klaviyo-subscribe",
+      "name": "Klaviyo — Suscribir",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [900, 200],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "klaviyo-header-auth",
+          "name": "Klaviyo API Key"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"success\": true, \"message\": \"Lead procesado\" }"
+      },
+      "id": "respond-ok",
+      "name": "Responder OK",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1120, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"success\": false, \"message\": \"Email requerido\" }"
+      },
+      "id": "respond-error",
+      "name": "Responder Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [900, 420]
+    }
+  ],
+  "connections": {
+    "Webhook": {
+      "main": [[{ "node": "Parsear datos", "type": "main", "index": 0 }]]
+    },
+    "Parsear datos": {
+      "main": [[{ "node": "Tiene email?", "type": "main", "index": 0 }]]
+    },
+    "Tiene email?": {
+      "main": [
+        [{ "node": "Klaviyo — Suscribir", "type": "main", "index": 0 }],
+        [{ "node": "Responder Error", "type": "main", "index": 0 }]
+      ]
+    },
+    "Klaviyo — Suscribir": {
+      "main": [[{ "node": "Responder OK", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "meta": {
+    "instanceId": "crea-local-miami"
+  }
+}
