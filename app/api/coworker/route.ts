@@ -1,167 +1,134 @@
 import { NextRequest, NextResponse } from 'next/server'
 
-const ANTHROPIC_KEY   = process.env.ANTHROPIC_API_KEY!
+const ANTHROPIC_KEY  = process.env.ANTHROPIC_API_KEY!
 const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK_ALERTAS!
-const STUDIO_PASS     = process.env.STUDIO_PASSWORD || 'crealocalmiami2024'
+const STUDIO_PASS    = process.env.STUDIO_PASSWORD || 'crealocalmiami2024'
 
 // ── Plan semanal por paquete ─────────────────────────────────
 const PLAN: Record<string, { posts: number; stories: number; reels: number; ugc: number }> = {
-  Starter: { posts: 2, stories: 1, reels: 0, ugc: 0 },
-  Pro:     { posts: 4, stories: 2, reels: 1, ugc: 0 },
-  Premium: { posts: 5, stories: 4, reels: 2, ugc: 1 },
+    Starter: { posts: 2, stories: 1, reels: 0, ugc: 0 },
+    Pro:     { posts: 4, stories: 2, reels: 1, ugc: 0 },
+    Premium: { posts: 5, stories: 4, reels: 2, ugc: 1 },
 }
 
-// ── Tipos de contenido ────────────────────────────────────────
-function buildPiezas(plan: typeof PLAN.Starter, categoria: string, semana: number) {
-  const piezas: Array<{ tipo: string; orden: number }> = []
-  let i = 1
-  for (let p = 0; p < plan.posts;   p++) piezas.push({ tipo: 'Post',   orden: i++ })
-  for (let s = 0; s < plan.stories;  s++) piezas.push({ tipo: 'Story',  orden: i++ })
-  for (let r = 0; r < plan.reels;    r++) piezas.push({ tipo: 'Reel',   orden: i++ })
-  for (let u = 0; u < plan.ugc;      u++) piezas.push({ tipo: 'UGC',    orden: i++ })
-  return piezas
+// ── Tipos de contenido por orden ────────────────────────────
+function buildTipos(plan: { posts: number; stories: number; reels: number; ugc: number }) {
+    const tipos: Array<{ tipo: string; orden: number }> = []
+        let orden = 1
+    for (let i = 0; i < plan.posts;   i++) tipos.push({ tipo: 'Post',  orden: orden++ })
+    for (let i = 0; i < plan.stories; i++) tipos.push({ tipo: 'Story', orden: orden++ })
+    for (let i = 0; i < plan.reels;   i++) tipos.push({ tipo: 'Reel',  orden: orden++ })
+    for (let i = 0; i < plan.ugc;     i++) tipos.push({ tipo: 'UGC',   orden: orden++ })
+    return tipos
 }
 
-// ── Claude: generar plan de contenido ─────────────────────────
-async function generarContenido(input: {
-  cliente: string; negocio: string; categoria: string
-  paquete: string; semana: number; descripcion: string
-  estilo: string; plataformas: string[]
-}) {
-  const plan = PLAN[input.paquete] || PLAN.Starter
-  const piezas = buildPiezas(plan, input.categoria, input.semana)
-  const totalPiezas = piezas.length
+export async function POST(req: NextRequest) {
+    const body = await req.json()
+    const { cliente, negocio, categoria, paquete, semana, descripcion, estilo, plataformas, password } = body
 
+  // Auth
+  if (password !== STUDIO_PASS) {
+        return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
+  }
+
+  const planInfo = PLAN[paquete] || PLAN['Pro']
+    const tipos = buildTipos(planInfo)
+    const totalPiezas = tipos.length
+    const plataformasStr = Array.isArray(plataformas) ? plataformas.join(', ') : 'Instagram'
+
+  // ── Prompt para Claude ──────────────────────────────────
   const prompt = `Eres el co-worker de marketing de Crea Local Miami, una agencia de contenido bilingüe para negocios locales en Miami.
 
-CLIENTE:
-- Nombre: ${input.cliente}
-- Negocio: ${input.negocio}
-- Categoría: ${input.categoria}
-- Descripción: ${input.descripcion}
-- Paquete: ${input.paquete}
-- Semana: ${input.semana} de 4
-- Estilo visual: ${input.estilo}
-- Plataformas: ${input.plataformas.join(', ')}
+  Tu tarea: generar el plan de contenido semanal completo para este cliente.
 
-PLAN SEMANAL (${totalPiezas} piezas total):
-${piezas.map(p => `- ${p.tipo} #${p.orden}`).join('\n')}
+  DATOS DEL CLIENTE:
+  - Cliente: ${cliente}
+  - Negocio: ${negocio}
+  - Categoría: ${categoria}
+  - Paquete: ${paquete} (${planInfo.posts}P + ${planInfo.stories}S + ${planInfo.reels}R + ${planInfo.ugc}UGC por semana)
+  - Semana: ${semana}/4
+  - Descripción: ${descripcion}
+  - Estilo visual: ${estilo}
+  - Plataformas: ${plataformasStr}
 
-Genera un JSON con esta estructura EXACTA (sin markdown, solo el JSON):
-{
-  "estrategia": "1-2 oraciones sobre el enfoque temático de esta semana para ${input.negocio}",
-  "tematica_semana": "tema central de la semana en 5 palabras",
-  "piezas": [
-    ${piezas.map(p => `{
-      "tipo": "${p.tipo}",
-      "orden": ${p.orden},
-      "tema": "tema específico de esta pieza para ${input.negocio}",
-      "copy_es": "copy completo en español (${p.tipo === 'Story' ? '1-2 líneas cortas' : '2-3 oraciones'})",
-      "copy_en": "copy completo en inglés (${p.tipo === 'Story' ? '1-2 short lines' : '2-3 sentences'})",
-      "caption_es": "caption para Instagram en español con emojis, máx 150 chars",
-      "caption_en": "Instagram caption in English with emojis, max 150 chars",
-      "hashtags": "#miami #miamibusiness #${input.categoria.toLowerCase().replace(/\s/g, '')} #contenidobilingue #crealocalmiami (agregar 5-7 más relevantes)",
-      "prompt_video": ${p.tipo === 'Story' || p.tipo === 'Reel' || p.tipo === 'UGC'
-        ? `"cinematic video prompt in English for fal.ai/kling optimized for ${p.tipo}: describe scene, camera movement, lighting, mood, duration 5-10s, 9:16 aspect ratio, setting in Miami"`
-        : `""`
-      },
-      "cta": "llamada a acción específica"
-    }`).join(',\n    ')}
-  ]
-}`
+  Genera ${totalPiezas} piezas de contenido. Para cada pieza necesito:
+  1. tema: tema específico de la pieza (2-5 palabras)
+  2. copy_es: copy principal en español (2-3 oraciones, tono según estilo ${estilo})
+  3. copy_en: copy principal en inglés (traducción natural, no literal)
+  4. caption_es: caption para Instagram en español con emojis (máx 150 chars)
+  5. caption_en: caption en inglés con emojis (máx 150 chars)
+  6. hashtags: 8-10 hashtags relevantes separados por espacio (mix español/inglés/Miami local)
+  7. cta: llamada a acción específica para este negocio
+  8. prompt_video: prompt detallado en inglés para generar el video con IA (descripción visual, movimiento de cámara, estilo, colores, ambiente)
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': ANTHROPIC_KEY,
-      'anthropic-version': '2023-06-01',
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 4000,
-      messages: [{ role: 'user', content: prompt }],
-    }),
-  })
+  Responde ÚNICAMENTE con un JSON válido con esta estructura exacta:
+  {
+    "estrategia": "descripción breve de la estrategia de la semana (1-2 oraciones)",
+      "tematica_semana": "tema central de la semana",
+        "plan": {"posts": ${planInfo.posts}, "stories": ${planInfo.stories}, "reels": ${planInfo.reels}, "ugc": ${planInfo.ugc}, "precio": "${paquete === 'Starter' ? '$150/mes' : paquete === 'Pro' ? '$250/mes' : '$450/mes'}"},
+          "piezas": [
+              {
+                    "tipo": "Post|Story|Reel|UGC",
+                          "orden": 1,
+                                "tema": "...",
+                                      "copy_es": "...",
+                                            "copy_en": "...",
+                                                  "caption_es": "...",
+                                                        "caption_en": "...",
+                                                              "hashtags": "...",
+                                                                    "cta": "...",
+                                                                          "prompt_video": "..."
+                                                                              }
+                                                                                ]
+                                                                                }
 
-  const data = await res.json()
-  const text = data.content?.[0]?.text || '{}'
+                                                                                Los tipos deben ser en este orden: ${tipos.map((t, i) => `${i+1}. ${t.tipo}`).join(', ')}`
 
   try {
-    return JSON.parse(text.trim())
-  } catch {
-    // Intentar extraer JSON si Claude agregó texto alrededor
-    const match = text.match(/\{[\s\S]*\}/)
-    if (match) return JSON.parse(match[0])
-    throw new Error('Claude no devolvió JSON válido')
-  }
-}
+        const claudeRes = await fetch('https://api.anthropic.com/v1/messages', {
+                method: 'POST',
+                headers: {
+                          'x-api-key': ANTHROPIC_KEY,
+                          'anthropic-version': '2023-06-01',
+                          'content-type': 'application/json',
+                },
+                body: JSON.stringify({
+                          model: 'claude-opus-4-5',
+                          max_tokens: 4000,
+                          messages: [{ role: 'user', content: prompt }],
+                }),
+        })
 
-// ── Discord: notificar plan ────────────────────────────────────
-async function notificarDiscord(input: any, resultado: any) {
-  if (!DISCORD_WEBHOOK) return
+      if (!claudeRes.ok) {
+              const errText = await claudeRes.text()
+              return NextResponse.json({ error: 'Error Claude: ' + errText }, { status: 500 })
+      }
 
-  const plan = PLAN[input.paquete] || PLAN.Starter
-  const videoPiezas = (resultado.piezas || []).filter((p: any) => p.prompt_video)
+      const claudeData = await claudeRes.json()
+        const rawText = claudeData.content?.[0]?.text || ''
 
-  const msg = [
-    `🎨 **CO-WORKER EJECUTADO — ${input.negocio}**`,
-    ``,
-    `**Cliente:** ${input.cliente} | **Paquete:** ${input.paquete} | **Semana:** ${input.semana}/4`,
-    `**Temática:** ${resultado.tematica_semana}`,
-    ``,
-    `**📦 Plan:** ${plan.posts} Posts · ${plan.stories} Stories · ${plan.reels} Reels · ${plan.ugc} UGC`,
-    `**🎯 Estrategia:** ${resultado.estrategia}`,
-    ``,
-    videoPiezas.length > 0
-      ? `**🎬 ${videoPiezas.length} prompt(s) de video listos para Higgsfield (generar en Claude)**`
-      : '',
-    ``,
-    `✅ Plan completo en el Studio: https://crea-local-miami.vercel.app/studio`,
-  ].filter(Boolean).join('\n')
+      // Extraer JSON de la respuesta
+      const jsonMatch = rawText.match(/\{[\s\S]*\}/)
+        if (!jsonMatch) {
+                return NextResponse.json({ error: 'No se pudo parsear respuesta de Claude', raw: rawText.substring(0, 500) }, { status: 500 })
+        }
+        const resultado = JSON.parse(jsonMatch[0])
 
-  await fetch(DISCORD_WEBHOOK, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ content: msg }),
-  }).catch(() => {})
-}
+      // Discord alert (non-blocking)
+      if (DISCORD_WEBHOOK) {
+              fetch(DISCORD_WEBHOOK, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                                    content: `🎨 **Plan generado — ${negocio}**\nCliente: ${cliente} | Paquete: ${paquete} | Semana ${semana}/4\nTema: ${resultado.tematica_semana || '—'}\nPiezas: ${totalPiezas}`,
+                        }),
+              }).catch(() => {})
+      }
 
-// ── Handler principal ─────────────────────────────────────────
-export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json()
+      return NextResponse.json(resultado)
 
-    // Auth básica
-    if (body.password !== STUDIO_PASS) {
-      return NextResponse.json({ error: 'No autorizado' }, { status: 401 })
-    }
-
-    const input = {
-      cliente:     body.cliente     || '',
-      negocio:     body.negocio     || '',
-      categoria:   body.categoria   || 'Otro',
-      paquete:     body.paquete     || 'Starter',
-      semana:      Number(body.semana) || 1,
-      descripcion: body.descripcion || '',
-      estilo:      body.estilo      || 'Vibrante/Colorido',
-      plataformas: body.plataformas || ['Instagram'],
-    }
-
-    // 1. Claude genera el plan de contenido
-    const resultado = await generarContenido(input)
-
-    // 2. Generar videos en paralelo para piezas con prompt_video
-    // 3. Notificar Discord
-    await notificarDiscord(input, resultado)
-
-    return NextResponse.json({
-      ok: true,
-      plan: PLAN[input.paquete] || PLAN.Starter,
-      ...resultado,
-    })
-
-  } catch (err: any) {
-    return NextResponse.json({ error: err.message || 'Error interno' }, { status: 500 })
+  } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        return NextResponse.json({ error: msg }, { status: 500 })
   }
 }
