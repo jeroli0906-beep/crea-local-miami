@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 
 const ANTHROPIC_KEY   = process.env.ANTHROPIC_API_KEY!
-const FAL_KEY         = process.env.FAL_API_KEY!
 const DISCORD_WEBHOOK = process.env.DISCORD_WEBHOOK_ALERTAS!
 const STUDIO_PASS     = process.env.STUDIO_PASSWORD || 'crealocalmiami2024'
 
@@ -98,37 +97,12 @@ Genera un JSON con esta estructura EXACTA (sin markdown, solo el JSON):
   }
 }
 
-// ── fal.ai: generar video ─────────────────────────────────────
-async function generarVideo(prompt: string, tipo: string) {
-  if (!FAL_KEY || !prompt) return null
-
-  try {
-    const res = await fetch('https://queue.fal.run/fal-ai/kling-video/v1/standard/text-to-video', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Key ${FAL_KEY}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        prompt,
-        duration: tipo === 'Reel' ? '10' : '5',
-        aspect_ratio: '9:16',
-      }),
-    })
-
-    if (!res.ok) return null
-    const data = await res.json()
-    return data.request_id || null
-  } catch {
-    return null
-  }
-}
-
 // ── Discord: notificar plan ────────────────────────────────────
-async function notificarDiscord(input: any, resultado: any, requestIds: string[]) {
+async function notificarDiscord(input: any, resultado: any) {
   if (!DISCORD_WEBHOOK) return
 
-  const videoIds = requestIds.filter(Boolean)
+  const plan = PLAN[input.paquete] || PLAN.Starter
+  const videoPiezas = (resultado.piezas || []).filter((p: any) => p.prompt_video)
 
   const msg = [
     `🎨 **CO-WORKER EJECUTADO — ${input.negocio}**`,
@@ -136,18 +110,15 @@ async function notificarDiscord(input: any, resultado: any, requestIds: string[]
     `**Cliente:** ${input.cliente} | **Paquete:** ${input.paquete} | **Semana:** ${input.semana}/4`,
     `**Temática:** ${resultado.tematica_semana}`,
     ``,
-    `**📦 Plan generado:**`,
-    `• Posts: ${PLAN[input.paquete]?.posts ?? 0} | Stories: ${PLAN[input.paquete]?.stories ?? 0} | Reels: ${PLAN[input.paquete]?.reels ?? 0} | UGC: ${PLAN[input.paquete]?.ugc ?? 0}`,
-    ``,
+    `**📦 Plan:** ${plan.posts} Posts · ${plan.stories} Stories · ${plan.reels} Reels · ${plan.ugc} UGC`,
     `**🎯 Estrategia:** ${resultado.estrategia}`,
     ``,
-    videoIds.length > 0
-      ? `**🎬 Videos en generación (fal.ai):** ${videoIds.length} video(s) — IDs: ${videoIds.join(', ')}`
+    videoPiezas.length > 0
+      ? `**🎬 ${videoPiezas.length} prompt(s) de video listos para Higgsfield (generar en Claude)**`
       : '',
     ``,
-    `✅ Contenido completo disponible en el Studio`,
-    `https://crea-local-miami.vercel.app/studio`,
-  ].filter(l => l !== undefined).join('\n')
+    `✅ Plan completo en el Studio: https://crea-local-miami.vercel.app/studio`,
+  ].filter(Boolean).join('\n')
 
   await fetch(DISCORD_WEBHOOK, {
     method: 'POST',
@@ -181,21 +152,8 @@ export async function POST(req: NextRequest) {
     const resultado = await generarContenido(input)
 
     // 2. Generar videos en paralelo para piezas con prompt_video
-    const piezasConVideo = (resultado.piezas || []).filter((p: any) => p.prompt_video)
-    const videoJobs = await Promise.all(
-      piezasConVideo.map((p: any) => generarVideo(p.prompt_video, p.tipo))
-    )
-
-    // Adjuntar request IDs a las piezas
-    let vIdx = 0
-    for (const pieza of resultado.piezas || []) {
-      if (pieza.prompt_video) {
-        pieza.fal_request_id = videoJobs[vIdx++] || null
-      }
-    }
-
     // 3. Notificar Discord
-    await notificarDiscord(input, resultado, videoJobs as string[])
+    await notificarDiscord(input, resultado)
 
     return NextResponse.json({
       ok: true,

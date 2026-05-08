@@ -265,6 +265,34 @@ export default function Studio() {
 
           {resultado && (
             <div className="space-y-4">
+              {/* Botón generar todos los videos */}
+              {resultado.piezas?.some((p: Pieza) => p.prompt_video) && (
+                <div className="bg-primary/10 border border-primary/30 rounded-2xl p-5 flex items-center justify-between gap-4">
+                  <div>
+                    <p className="font-bold text-primary">🎬 {resultado.piezas.filter((p: Pieza) => p.prompt_video).length} video(s) listos para generar</p>
+                    <p className="text-xs text-muted mt-0.5">Copia el prompt completo y pégalo en Claude Code — genera todos los videos con Higgsfield MCP</p>
+                  </div>
+                  <button
+                    onClick={() => {
+                      const videoPiezas = resultado.piezas.filter((p: Pieza) => p.prompt_video)
+                      const prompt = [
+                        `Genera los siguientes ${videoPiezas.length} video(s) con Higgsfield MCP para ${form.negocio} (${form.paquete}, Semana ${form.semana}/4):`,
+                        '',
+                        ...videoPiezas.map((p: Pieza, i: number) =>
+                          `VIDEO ${i + 1} — ${p.tipo} | ${p.tema}\nPrompt: ${p.prompt_video}`
+                        ),
+                        '',
+                        'Envía cada video al Discord de Crea Local Miami cuando esté listo.',
+                      ].join('\n')
+                      copyText(prompt, 'all-videos')
+                    }}
+                    className="shrink-0 bg-primary hover:bg-primary/90 text-white font-bold px-4 py-2.5 rounded-xl text-sm transition-colors whitespace-nowrap"
+                  >
+                    {copied === 'all-videos' ? '✅ Copiado' : '⚡ Copiar todos'}
+                  </button>
+                </div>
+              )}
+
               {/* Resumen */}
               <div className="bg-dark2 border border-white/10 rounded-2xl p-5">
                 <div className="flex items-start justify-between mb-3">
@@ -300,9 +328,9 @@ export default function Studio() {
                         <p className="text-white font-semibold">{pieza.tema}</p>
                       </div>
                     </div>
-                    {pieza.fal_request_id && (
-                      <span className="bg-green-500/20 border border-green-500/30 text-green-400 text-xs px-2 py-1 rounded-full">
-                        🎬 Video generando
+                    {pieza.prompt_video && (
+                      <span className="bg-primary/20 border border-primary/30 text-primary text-xs px-2 py-1 rounded-full">
+                        🎬 Video listo para Higgsfield
                       </span>
                     )}
                   </div>
@@ -319,16 +347,22 @@ export default function Studio() {
                   {pieza.prompt_video && (
                     <div className="mt-3">
                       <CopyBlock
-                        label="🎬 Prompt Video (fal.ai / Higgsfield)"
+                        label="🎬 Prompt Higgsfield (pegar en Claude Code)"
                         text={pieza.prompt_video}
                         id={`vid-${pieza.orden}`}
                         copied={copied}
                         onCopy={copyText}
                         highlight
                       />
-                      {pieza.fal_request_id && (
-                        <p className="text-xs text-muted mt-1">fal.ai ID: <code className="text-green-400">{pieza.fal_request_id}</code></p>
-                      )}
+                      <button
+                        onClick={() => copyText(
+                          `Genera este video con Higgsfield MCP:\n\nCliente: ${form.negocio}\nTipo: ${pieza.tipo}\nTema: ${pieza.tema}\n\nPrompt: ${pieza.prompt_video}\n\nEnvía el resultado al Discord de Crea Local Miami cuando esté listo.`,
+                          `claude-${pieza.orden}`
+                        )}
+                        className="mt-2 w-full text-xs bg-primary/20 hover:bg-primary/30 border border-primary/40 text-primary py-2 rounded-lg transition-colors"
+                      >
+                        {copied === `claude-${pieza.orden}` ? '✅ Prompt copiado — pégalo en Claude Code' : '⚡ Copiar prompt para Claude Code + Higgsfield'}
+                      </button>
                     </div>
                   )}
 
